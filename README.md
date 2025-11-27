@@ -34,9 +34,9 @@ Below is the line diagram showing the external devices and communication interfa
 
 ```mermaid
 graph TD
-    %% Ana İşlemci
-    MCU[STM32 Nucleo-F446RE]
-
+    %% Ana İşlemci: F407 OLARAK GÜNCELLENDİ
+    MCU[STM32F407 Discovery]
+    
     %% Bileşenler
     Soil[Soil Moisture Sensor]
     BME[BME280 Temp/Hum Sensor]
@@ -45,14 +45,14 @@ graph TD
     Btn[Push Button]
     GSM[GSM Module]
 
-    %% Bağlantılar
-    Soil -->|Analog PA0| MCU
+    %% Bağlantılar - F407 PINLERİNE GÖRE DÜZELTİLDİ
+    Soil -->|Analog PA1| MCU
     MCU <-->|I2C PB8/PB9| BME
     MCU -->|I2C PB8/PB9| OLED
-    MCU -->|GPIO Out PA5| Relay
-    Btn -->|GPIO In PC13| MCU
+    MCU -->|GPIO Out PD12| Relay
+    Btn -->|GPIO In PA0| MCU
     MCU <-->|UART PA9/PA10| GSM
-
+    
     %% Renklendirme
     style MCU fill:#f9f,stroke:#333,stroke-width:4px
     style Relay fill:#ff9,stroke:#333
