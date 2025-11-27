@@ -1,50 +1,76 @@
 /*
- * Project: Smart Irrigation System - GPIO Register Level Driver
+ * Project: Smart Irrigation System - GPIO Register Level Driver (INTERRUPT VERSION)
  * Hardware: STM32F407 Discovery Board
- * Description: Control of Solenoid Valve (PD12) and Push Button (PA0)
- * using direct Register Access.
+ * Description: Control of Solenoid Valve (PD12) via Push Button (PA0) using EXTI Interrupt.
+ *
+ * Logic:
+ * - Button Press (Rising Edge) -> Valve ON
+ * - Button Release (Falling Edge) -> Valve OFF
  */
 
 #include "stm32f4xx.h"
 
 void GPIO_Config(void) {
-    // 1. Clock Aktivasyonu (RCC AHB1 Register)
-    // GPIOA (Buton için Bit 0) ve GPIOD (Valf/LED için Bit 3) clock aç.
-    RCC->AHB1ENR |= (1UL << 0); // GPIOA Clock Enable
-    RCC->AHB1ENR |= (1UL << 3); // GPIOD Clock Enable
+    // 1. Clock Aktivasyonu (AHB1)
+    RCC->AHB1ENR |= (1UL << 0); // GPIOA Clock Enable (Buton)
+    RCC->AHB1ENR |= (1UL << 3); // GPIOD Clock Enable (Valf)
 
-    // 2. PD12'yi Output (Çıkış) Olarak Ayarla (MODER Register)
-    // Pin 12 için bitler [25:24]. Output modu '01'dir.
-    GPIOD->MODER &= ~(3UL << (12 * 2));  // Temizle
-    GPIOD->MODER |= (1UL << (12 * 2));   // '01' yap (Output Mode)
+    // 2. SYSCFG Clock Aktivasyonu (Interrupt için gerekli - APB2)
+    RCC->APB2ENR |= (1UL << 14); // SYSCFG Clock Enable
 
-    // 3. PA0'ı Input (Giriş) Olarak Ayarla (MODER Register)
-    // Pin 0 için bitler [1:0]. Input modu '00'dır.
-    GPIOA->MODER &= ~(3UL << (0 * 2));   // Temizle -> '00' (Input Mode)
-    
-    // 4. PA0 Butonu için Pull-down (Discovery'de gerekebilir ama genelde haricidir)
-    // "10" Pull-down mode yapar.
-    GPIOA->PUPDR &= ~(3UL << (0 * 2)); // Temizle
-    GPIOA->PUPDR |= (2UL << (0 * 2));  // Pull-down (Garanti olsun)
+    // 3. PD12 Output Ayarı (Valf)
+    GPIOD->MODER &= ~(3UL << (12 * 2)); // Temizle
+    GPIOD->MODER |= (1UL << (12 * 2));  // '01' Output Mode
+
+    // 4. PA0 Input Ayarı (Buton)
+    GPIOA->MODER &= ~(3UL << (0 * 2));  // '00' Input Mode
+    GPIOA->PUPDR &= ~(3UL << (0 * 2));  // Temizle
+    GPIOA->PUPDR |= (2UL << (0 * 2));   // Pull-down (varsayılan '0')
+
+    // 5. EXTI (Harici Kesme) Ayarları
+    // PA0'ı EXTI0 hattına bağla (SYSCFG_EXTICR1)
+    // EXTI0, [3:0] bitleridir. PA için '0000' yazılır.
+    SYSCFG->EXTICR[0] &= ~(0xF << 0); 
+
+    // Maskeyi kaldır (Interrupt'a izin ver) - IMR Register
+    EXTI->IMR |= (1UL << 0); // Line 0 aktif
+
+    // Hem Yükselen (Basınca) Hem Düşen (Bırakınca) Kenarı Algıla
+    EXTI->RTSR |= (1UL << 0); // Rising Trigger (Basma)
+    EXTI->FTSR |= (1UL << 0); // Falling Trigger (Bırakma)
+
+    // 6. NVIC (Çekirdek Kesme Kontrolcüsü) Ayarı
+    // EXTI0 kesmesine işlemci seviyesinde izin ver
+    NVIC_EnableIRQ(EXTI0_IRQn);
+    NVIC_SetPriority(EXTI0_IRQn, 0); // En yüksek öncelik
+}
+
+// Bu fonksiyon SADECE butona basıldığında veya bırakıldığında çalışır
+void EXTI0_IRQHandler(void) {
+    // Kesme bayrağını kontrol et (Line 0 mı tetiklendi?)
+    if (EXTI->PR & (1UL << 0)) {
+        
+        // Buton durumunu kontrol et (PA0 High mı?)
+        if (GPIOA->IDR & (1UL << 0)) {
+            // Butona BASILIYOR -> Valfi Aç
+            GPIOD->ODR |= (1UL << 12);
+        } else {
+            // Buton BIRAKILDI -> Valfi Kapat
+            GPIOD->ODR &= ~(1UL << 12);
+        }
+
+        // ÇOK ÖNEMLİ: Kesme bayrağını temizle (Yoksa sonsuz döngüye girer)
+        EXTI->PR |= (1UL << 0); 
+    }
 }
 
 int main(void) {
     GPIO_Config();
 
+    // Sonsuz döngü (Burada işlemci başka işler yapabilir veya uyuyabilir)
     while (1) {
-        // IDR (Input Data Register) okuma
-        // STM32F407 Discovery üzerindeki Mavi buton basılınca "1" (HIGH) verir.
-        
-        if (GPIOA->IDR & (1UL << 0)) { 
-            // BUTONA BASILDI: Valfi (PD12) Aç
-            GPIOD->ODR |= (1UL << 12); 
-            
-        } else {
-            // BUTON BIRAKILDI: Valfi (PD12) Kapat
-            GPIOD->ODR &= ~(1UL << 12);
-        }
-        
-        // Debounce gecikmesi
-        for (volatile int i = 0; i < 50000; i++);
+        // Ana döngü boş. İşlemci sadece interrupt bekliyor.
+        // Buraya "System Idle" veya sensör okuma kodları gelebilir.
+        __NOP(); 
     }
 }
